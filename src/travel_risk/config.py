@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # "claude" needs ANTHROPIC_API_KEY (or an `ant auth login` profile).
     # "heuristic" is the offline rules-only baseline.
     model_provider: Literal["claude", "heuristic"] = "heuristic"
+    # Read from ANTHROPIC_API_KEY in the environment or .env. When unset, the SDK falls back to
+    # its own credential chain (e.g. an `ant auth login` profile).
+    anthropic_api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
     claude_model: str = "claude-opus-5-5"
     claude_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
 

@@ -101,3 +101,16 @@ class TestHeuristic:
         item = replace(ITEM, city="Haret Hraik", other_source_level=None)
         r = HeuristicRiskModel().assess(item).assessment
         assert r.confidence == 0.8 and r.severity == "medium"
+
+
+def test_api_key_is_read_from_dotenv(tmp_path, monkeypatch):
+    """The SDK only reads os.environ; .env values must be passed through explicitly."""
+    from travel_risk.config import Settings
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=sk-ant-test\nTRA_MODEL_PROVIDER=claude\n")
+    s = Settings(_env_file=env)
+    assert s.anthropic_api_key.get_secret_value() == "sk-ant-test"
+    assert s.model_provider == "claude"
+    assert "sk-ant-test" not in repr(s)
