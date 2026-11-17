@@ -43,6 +43,18 @@ def _other_source_level(session: Session, advisory: Advisory) -> int | None:
     return other
 
 
+def _previous_level(session: Session, advisory: Advisory) -> int | None:
+    if advisory.version <= 1:
+        return None
+    return session.scalars(
+        select(Advisory.level).where(
+            Advisory.source == advisory.source,
+            Advisory.country_iso == advisory.country_iso,
+            Advisory.version == advisory.version - 1,
+        )
+    ).first()
+
+
 def _trip_like(trip: Trip) -> TripLike:
     return TripLike(trip.country_iso, trip.city, trip.start_date, trip.end_date)
 
@@ -154,6 +166,8 @@ def assess_pairs(
             start_date=first_trip.start_date,
             end_date=first_trip.end_date,
             other_source_level=other_level,
+            change_kind=adv.change_kind,
+            previous_level=_previous_level(session, adv),
         )
         extra_reasons: tuple[str, ...] = ()
         try:

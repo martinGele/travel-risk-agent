@@ -1,7 +1,7 @@
 """Delivery. Only this module sends anything, and only for approved reviews or digests.
 
-Channels: Slack incoming webhook (per organisation) and a log channel for local runs.
-Email via Amazon SES arrives in week 5. Logs carry ids only, never names or message text.
+Channels: email (Amazon SES), Slack incoming webhook (per organisation), and a log channel for
+local runs without SES. Logs carry ids only, never names, addresses or message text.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ class Delivery:
     message: str
     slack_webhook_url: str | None = None
     slack_user_id: str | None = None
+    email_to: str | None = None
+    subject: str = "Travel advisory update for your trip"
 
 
 @dataclass(frozen=True)
@@ -35,10 +37,23 @@ class Notifier(Protocol):
 
 
 class DefaultNotifier:
-    def __init__(self, http: httpx.Client | None = None) -> None:
+    def __init__(self, http: httpx.Client | None = None, ses=None) -> None:
         self.http = http or httpx.Client(timeout=10)
+        self._ses = ses
+
+    @property
+    def ses(self):
+        if self._ses is None:
+            import boto3
+
+            from travel_risk.config import get_settings
+
+            self._ses = boto3.client("sesv2", region_name=get_settings().aws_region)
+        return self._ses
 
     def deliver(self, d: Delivery) -> DeliveryResult:
+        if d.channel == "email":
+            return self._email(d)
         if d.channel == "slack":
             if not d.slack_webhook_url:
                 return DeliveryResult(False, "organisation has no Slack webhook configured")
@@ -56,8 +71,31 @@ class DefaultNotifier:
         return DeliveryResult(False, f"channel {d.channel!r} not implemented yet")
 
 
+    def _email(self, d: Delivery) -> DeliveryResult:
+        from travel_risk.config import get_settings
+
+        sender = get_settings().ses_from_email
+        if not (sender and d.email_to):
+            return DeliveryResult(False, "email not configured (TRA_SES_FROM_EMAIL / recipient)")
+        try:
+            self.ses.send_email(
+                FromEmailAddress=sender,
+                Destination={"ToAddresses": [d.email_to]},
+                Content={"Simple": {
+                    "Subject": {"Data": d.subject},
+                    "Body": {"Text": {"Data": d.message}},
+                }},
+            )
+        except Exception as exc:  # botocore raises many types; record the class, not the text
+            return DeliveryResult(False, f"ses: {exc.__class__.__name__}")
+        return DeliveryResult(True)
+
+
 def channel_for(notify_channel: str, slack_webhook_url: str | None) -> str:
     if notify_channel == "slack" and slack_webhook_url:
         return "slack"
-    # Email lands in week 5; until then email organisations use the log channel.
-    return "log"
+    from travel_risk.config import get_settings
+
+    if notify_channel == "email" and get_settings().ses_from_email:
+        return "email"
+    return "log"  # local runs without SES

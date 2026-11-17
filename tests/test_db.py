@@ -26,7 +26,8 @@ def test_us_feed_stores_one_current_version_per_country(session, us_feed_xml):
     assert created == len(countries)  # Gaza+West Bank and Bonaire+Saba collapse
     assert all(a.level >= 2 for a in triggering)
     ps = session.scalars(select(Advisory).where(Advisory.country_iso == "PS")).one()
-    assert ps.level == 4  # strictest of Gaza (4) and West Bank (3) wins
+    assert ps.level == 4 and ps.regional  # strictest level; levels differ so it's regional
+    assert "Gaza" in ps.summary and "West Bank" in ps.summary  # both texts kept
 
     # Second identical sync stores nothing.
     assert store_snapshots(session, Source.US_STATE, snaps)[1:] == (0, [])

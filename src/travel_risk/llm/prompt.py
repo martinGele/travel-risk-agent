@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from travel_risk.llm.base import AssessmentInput
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 SYSTEM_PROMPT = """\
 You assess whether an official government travel advisory affects one specific business trip.
@@ -31,8 +31,9 @@ Decide:
   advisory text, no legal disclaimers.
 - confidence: your probability (0 to 1) that "affected" is correct.
 
-If the other government's level for the same country is given and differs, judge from the
-stricter of the two and mention the disagreement in the reason."""
+Judge "affected" and "severity" from this advisory alone. The other government's level is
+context: the traveller gets a separate assessment for that advisory. If it differs, mention the
+disagreement in the reason."""
 
 SOURCE_NAMES = {"us_state": "US State Department", "uk_fcdo": "UK FCDO"}
 
@@ -57,6 +58,12 @@ def build_user_message(item: AssessmentInput) -> str:
         if item.other_source_level is not None
         else "not available"
     )
+    if item.previous_level is not None and item.previous_level != item.advisory_level:
+        direction = "raised" if item.advisory_level > item.previous_level else "LOWERED"
+        change = (f"level {direction} from {item.previous_level}/4 to "
+                  f"{item.advisory_level}/4 ({item.change_kind})")
+    else:
+        change = item.change_kind.replace("_", " ")
     return f"""\
 Trip:
 - Destination: {item.city or "city not given"}, {item.country_iso}
@@ -66,6 +73,7 @@ Advisory:
 - Source: {SOURCE_NAMES.get(item.source, item.source)}
 - Level: {item.advisory_label} (normalised {item.advisory_level}/4)
 - Applies to only part of the country: {"yes" if item.advisory_regional else "no"}
+- Change since this source's previous version: {change}
 - Other government's current level for this country: {other}
 
 <advisory>

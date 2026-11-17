@@ -82,8 +82,12 @@ def test_schema_is_strict():
     assert set(OUTPUT_SCHEMA["required"]) == set(OUTPUT_SCHEMA["properties"])
 
 
-def test_prompt_mentions_disagreement():
-    assert "Level 4/4" in build_user_message(ITEM)
+def test_prompt_mentions_disagreement_and_change():
+    from dataclasses import replace
+
+    msg = build_user_message(replace(ITEM, previous_level=4, change_kind="level_down"))
+    assert "Level 4/4" in msg
+    assert "LOWERED from 4/4 to 3/4" in msg
 
 
 class TestHeuristic:
@@ -91,9 +95,15 @@ class TestHeuristic:
         r = HeuristicRiskModel().assess(ITEM).assessment
         assert r.affected and r.confidence < 0.7
 
-    def test_uses_stricter_source(self):
+    def test_judges_this_advisory_only(self):
         r = HeuristicRiskModel().assess(ITEM).assessment
-        assert r.severity == "high"  # other source says 4
+        assert r.severity == "medium"  # own level 3; the other source's 4 doesn't leak in
+
+    def test_level_drop_is_eased(self):
+        from dataclasses import replace
+
+        r = HeuristicRiskModel().assess(replace(ITEM, previous_level=4)).assessment
+        assert r.severity == "low" and r.action.startswith("Restrictions eased")
 
     def test_named_city_is_confident(self):
         from dataclasses import replace
@@ -114,3 +124,49 @@ def test_api_key_is_read_from_dotenv(tmp_path, monkeypatch):
     assert s.anthropic_api_key.get_secret_value() == "sk-ant-test"
     assert s.model_provider == "claude"
     assert "sk-ant-test" not in repr(s)
+
+
+class TestOllama:
+    def _model(self, handler):
+        import httpx
+
+        from travel_risk.llm.ollama import OllamaRiskModel
+
+        client = httpx.Client(transport=httpx.MockTransport(handler), base_url="http://o")
+        return OllamaRiskModel(http=client)
+
+    def test_request_and_parse(self):
+        seen = {}
+
+        def handler(request):
+            import httpx
+
+            seen.update(json.loads(request.content))
+            return httpx.Response(200, json={"message": {"content": json.dumps(GOOD)},
+                                             "prompt_eval_count": 1200, "eval_count": 60})
+
+        result = self._model(handler).assess(ITEM)
+        assert result.assessment.severity == "high" and result.model == "ollama/qwen2.5:7b"
+        assert seen["format"] == OUTPUT_SCHEMA and seen["options"]["num_ctx"] >= 16384
+        assert seen["options"]["temperature"] == 0 and seen["stream"] is False
+
+    def test_full_context_window_is_an_error(self):
+        import httpx
+
+        from travel_risk.llm.ollama import NUM_CTX
+
+        def handler(request):
+            return httpx.Response(200, json={"message": {"content": json.dumps(GOOD)},
+                                             "prompt_eval_count": NUM_CTX})
+
+        with pytest.raises(ModelError, match="context window"):
+            self._model(handler).assess(ITEM)
+
+    def test_server_down(self):
+        import httpx
+
+        def handler(request):
+            raise httpx.ConnectError("refused")
+
+        with pytest.raises(ModelError, match="ollama"):
+            self._model(handler).assess(ITEM)

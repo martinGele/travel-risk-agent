@@ -158,7 +158,15 @@ def main() -> None:
     sim.add_argument("--text", help="what the simulated advisory says")
 
     sub.add_parser("purge", help="delete trips that ended more than the retention period ago")
+    sub.add_parser("send-digests", help="send each organisation's daily low-severity digest")
+    sub.add_parser("mcp", help="run the read-only MCP server on stdio (needs TRA_MCP_API_KEY)")
     args = parser.parse_args()
+
+    if args.cmd == "mcp":
+        from travel_risk.mcp_server import main as mcp_main
+
+        mcp_main()  # stdout belongs to the MCP protocol; logs go to stderr
+        return
 
     with get_sessionmaker()() as session:
         if args.cmd == "sync":
@@ -178,6 +186,12 @@ def main() -> None:
             cmd_simulate(session, args)
         elif args.cmd == "purge":
             cmd_purge(session, args)
+        elif args.cmd == "send-digests":
+            from travel_risk.notify.digest import send_digests
+            from travel_risk.notify.notifier import DefaultNotifier
+
+            sent = send_digests(session, DefaultNotifier(), date.today())
+            print(f"digests sent: {len(sent)} organisation(s), {sum(sent.values())} item(s)")
 
 
 if __name__ == "__main__":

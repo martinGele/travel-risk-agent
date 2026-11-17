@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import httpx
@@ -30,21 +31,36 @@ def current_version(session: Session, source: str, country_iso: str) -> Advisory
     ).first()
 
 
+def merge_snapshots(items: list[AdvisorySnapshot]) -> AdvisorySnapshot:
+    if len(items) == 1:
+        return items[0]
+    items = sorted(items, key=lambda s: (-s.level, s.title))
+    top = items[0]
+    dates = [s.source_updated_at for s in items if s.source_updated_at]
+    return replace(
+        top,
+        regional=top.regional or len({s.level for s in items}) > 1,
+        title=" / ".join(s.title for s in items),
+        summary="\n\n".join(f"## {s.title}\n{s.summary}" for s in items),
+        source_updated_at=max(dates) if dates else None,
+    )
+
+
 def store_snapshots(
     session: Session, source: Source, snapshots: Iterable[AdvisorySnapshot]
 ) -> tuple[int, int, list[Advisory]]:
     """Store changed versions. Returns (seen, created, versions that trigger assessments).
 
-    Two US items can share a country (Gaza + West Bank -> PS, Bonaire + Saba -> BQ). We keep the
-    strictest one per country so the stored "current" version is the one that matters for safety.
+    Two US items can share a country (Gaza + West Bank -> PS, Bonaire + Saba -> BQ). They are
+    merged into one version: the strictest level, both texts under their own titles, and the
+    regional flag set when the levels differ, so the model can tell the areas apart.
     """
-    by_country: dict[str, AdvisorySnapshot] = {}
+    grouped: dict[str, list[AdvisorySnapshot]] = {}
     seen = 0
     for snap in snapshots:
         seen += 1
-        existing = by_country.get(snap.country_iso)
-        if existing is None or snap.level > existing.level:
-            by_country[snap.country_iso] = snap
+        grouped.setdefault(snap.country_iso, []).append(snap)
+    by_country = {iso: merge_snapshots(items) for iso, items in grouped.items()}
 
     created = 0
     triggering: list[Advisory] = []
@@ -158,9 +174,24 @@ def make_client() -> httpx.Client:
     )
 
 
+SYNC_LOCK_ID = 7_321_001  # arbitrary, unique to this app
+
+
 def sync_all(session: Session, model: RiskModel | None = None) -> list[SyncResult]:
-    with make_client() as client:
-        return [sync_source(session, src, client, model) for src in Source]
+    """Poll both feeds. A Postgres advisory lock stops two syncs overlapping (two containers,
+    or a scheduled run arriving while a manual one is still going)."""
+    from sqlalchemy import text
+
+    got = session.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": SYNC_LOCK_ID}).scalar()
+    if not got:
+        return [SyncResult(source="all", items_seen=0, versions_created=0, material_changes=0,
+                           errors=["another sync is already running"])]
+    try:
+        with make_client() as client:
+            return [sync_source(session, src, client, model) for src in Source]
+    finally:
+        session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": SYNC_LOCK_ID})
+        session.commit()
 
 
 __all__ = ["ChangeKind", "store_snapshots", "sync_all", "sync_source", "current_version"]

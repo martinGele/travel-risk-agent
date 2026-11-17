@@ -70,3 +70,13 @@ def test_ambiguous_dates_produce_warning():
     result = parse_csv(data, TODAY)
     assert result.rows[0].start_date == date(2026, 12, 3)
     assert result.warnings and "line" in result.warnings[0]
+
+
+@pytest.mark.parametrize(("raw", "tidy"), [
+    ("beirut ", "Beirut"), ("NEW  YORK", "New York"), ("McAllen", "McAllen"),
+    ("Ho Chi Minh City", "Ho Chi Minh City"), ("", None), ("   ", None),
+])
+def test_tidy_city(raw, tidy):
+    from travel_risk.trips.csv_import import tidy_city
+
+    assert tidy_city(raw) == tidy

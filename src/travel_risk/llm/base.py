@@ -23,6 +23,8 @@ class AssessmentInput:
     start_date: date
     end_date: date
     other_source_level: int | None
+    change_kind: str = "new"  # see ingestion.materiality.ChangeKind
+    previous_level: int | None = None
 
 
 @dataclass(frozen=True)

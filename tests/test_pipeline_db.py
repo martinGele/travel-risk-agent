@@ -241,18 +241,25 @@ def test_review_page(session, world):
         c.post("/ui/login", data={"api_key": "key-acme", "reviewer": "Mia"})
         page = c.get("/ui").text
         assert "Ana P" in page and "Dan C" in page and "Ken M" not in page
-        first_id = session.scalars(
-            select(Assessment.id).where(Assessment.organisation_id == org.id,
-                                        Assessment.status == "pending")
-        ).first()
-        r = c.post(f"/ui/assessments/{first_id}/review",
-                   data={"decision": "approve", "message": "Edited by Mia"},
+        ana_trip = trips[0].id
+        ids = list(session.scalars(select(Assessment.id).where(
+            Assessment.trip_id == ana_trip, Assessment.status == "pending")))
+        assert len(ids) == 2  # US + UK for the same trip: one card, one decision
+        assert page.count('name="ids"') == 2  # Ana and Dan, not four cards
+        r = c.post("/ui/trips/review",
+                   data={"ids": ",".join(map(str, ids)), "decision": "approve",
+                         "message": "Edited by Mia"},
                    follow_redirects=False)
-        assert "Sent" in r.headers["location"] or "Sent%20via" in r.headers["location"]
-        a = session.get(Assessment, first_id)
-        assert a.status == "edited"
-        n = session.scalars(select(Notification).where(Notification.assessment_id == a.id)).one()
-        assert n.status == "sent"
+        assert "Sent" in r.headers["location"]
+        decided = [session.get(Assessment, i) for i in ids]
+        assert {a.status for a in decided} == {"edited"}
+        notes = session.scalars(select(Notification).where(
+            Notification.assessment_id.in_(ids))).all()
+        assert len(notes) == 1 and notes[0].status == "sent"  # one message for the trip
+        # Deciding again is refused.
+        r = c.post("/ui/trips/review", data={"ids": ",".join(map(str, ids)),
+                                              "decision": "approve"}, follow_redirects=False)
+        assert "no%20longer%20pending" in r.headers["location"]
         assert "Mia" in c.get("/ui?tab=sent").text
     finally:
         app.dependency_overrides.clear()

@@ -28,6 +28,9 @@
   @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
   dl { margin: 0; } dt { font-size: 12px; color: var(--muted); margin-top: 8px; }
   dd { margin: 2px 0 0; }
+  section.source { padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px dashed var(--line); }
+  section.source:last-child { border-bottom: 0; margin-bottom: 0; }
+  dd .sev { margin-left: 6px; font-size: 11px; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   pre.msg { white-space: pre-wrap; font: inherit; font-size: 14px; background: var(--bg);
             border-radius: 8px; padding: 10px; margin: 0; }
@@ -66,40 +69,47 @@
     </table></div>
     {% else %}<p class="empty">Nothing sent yet.</p>{% endif %}
   {% else %}
-    {% for i in items %}
-    <article class="item {{ i.severity }}">
+    {% for g in groups %}
+    <article class="item {{ g.severity }}">
       <div class="top">
-        <span class="sev {{ i.severity }}">{{ i.severity }}</span>
-        <span class="who">{{ i.traveller.name }}</span>
-        <span>{{ i.trip.city ~ ", " if i.trip.city }}{{ i.trip.country }}</span>
-        <span class="muted">{{ i.trip.dates }}</span>
-      </div>
-      <div class="chips">
-        <span class="chip">{{ "Affected" if i.affected else "Not affected" }} · confidence {{ i.confidence }}</span>
-        {% for r in i.route_reasons %}<span class="chip">{{ r | replace("_", " ") }}</span>{% endfor %}
-        <span class="chip">{{ i.model }} · {{ i.prompt_version }}</span>
+        <span class="sev {{ g.severity }}">{{ g.severity }}</span>
+        <span class="who">{{ g.traveller.name }}</span>
+        <span>{{ g.trip.city ~ ", " if g.trip.city }}{{ g.trip.country }}</span>
+        <span class="muted">{{ g.trip.dates }}</span>
+        {% if g["items"]|length > 1 %}<span class="chip">{{ g["items"]|length }} sources</span>{% endif %}
       </div>
       <div class="grid">
-        <dl>
-          <dt>Advisory</dt>
-          <dd><a href="{{ i.advisory.url }}" target="_blank" rel="noopener">{{ "US State Dept" if i.advisory.source == "us_state" else "UK FCDO" }}: {{ i.advisory.label }}</a>
-            {% if i.advisory.regional %}<span class="muted">(parts of country)</span>{% endif %}</dd>
-          <dt>Change</dt><dd>{{ i.advisory.change_kind | replace("_", " ") }} · version {{ i.advisory.version }}</dd>
-          <dt>Why</dt><dd>{{ i.reason }}</dd>
-          <dt>Recommended action</dt><dd>{{ i.action }}</dd>
-        </dl>
-        {% if i.status == "pending" %}
-        <form method="post" action="/ui/assessments/{{ i.id }}/review">
-          <label class="muted" for="m{{ i.id }}" style="font-size:12px">Message to traveller (edit before sending)</label>
-          <textarea id="m{{ i.id }}" name="message">{{ i.drafted_message }}</textarea>
+        <div>
+        {% for i in g["items"] %}
+        <section class="source">
+          <dl>
+            <dt>Advisory</dt>
+            <dd><a href="{{ i.advisory.url }}" target="_blank" rel="noopener">{{ "US State Dept" if i.advisory.source == "us_state" else "UK FCDO" }}: {{ i.advisory.label }}</a>
+              {% if i.advisory.regional %}<span class="muted">(parts of country)</span>{% endif %}
+              <span class="sev {{ i.severity }}">{{ i.severity }}</span></dd>
+            <dt>Why</dt><dd>{{ i.reason }}</dd>
+            <dt>Recommended action</dt><dd>{{ i.action }}</dd>
+          </dl>
+          <div class="chips">
+            <span class="chip">{{ "Affected" if i.affected else "Not affected" }} · confidence {{ i.confidence }}</span>
+            {% for r in i.route_reasons %}<span class="chip">{{ r | replace("_", " ") }}</span>{% endfor %}
+            <span class="chip muted">{{ i.advisory.change_kind | replace("_", " ") }} · v{{ i.advisory.version }} · {{ i.model }}</span>
+          </div>
+        </section>
+        {% endfor %}
+        </div>
+        {% if g.pending %}
+        <form method="post" action="/ui/trips/review">
+          <input type="hidden" name="ids" value="{{ g.ids }}">
+          <label class="muted" for="m{{ g.trip.id }}" style="font-size:12px">Message to traveller (one message for this trip; edit before sending)</label>
+          <textarea id="m{{ g.trip.id }}" name="message">{{ g.message }}</textarea>
           <div class="actions">
             <button class="primary" name="decision" value="approve">Approve and send</button>
             <button class="danger" name="decision" value="reject">Reject</button>
           </div>
         </form>
         {% else %}
-        <div><dt>Message</dt><pre class="msg">{{ i.drafted_message }}</pre>
-             <p class="muted">Status: {{ i.status }}</p></div>
+        <div>{% for i in g["items"] %}<dt>Message ({{ i.status }})</dt><pre class="msg">{{ i.drafted_message }}</pre>{% endfor %}</div>
         {% endif %}
       </div>
     </article>

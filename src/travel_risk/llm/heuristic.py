@@ -27,7 +27,7 @@ class HeuristicRiskModel:
 
     def assess(self, item: AssessmentInput) -> ModelResult:
         started = time.monotonic()
-        level = max(item.advisory_level, item.other_source_level or 0)
+        level = item.advisory_level  # this advisory only (SEVERITY_RUBRIC.md)
         source = SOURCE_NAMES.get(item.source, item.source)
         city = normalise_city(item.city)
         city_named = bool(city) and city in normalise_city(item.advisory_text)
@@ -42,6 +42,18 @@ class HeuristicRiskModel:
         else:
             reason = f"{source} advice for this country is {item.advisory_label}."
             confidence = 0.8
+
+        if item.previous_level and item.advisory_level < item.previous_level:
+            return ModelResult(
+                assessment=RiskAssessment(
+                    affected=True, severity="low",
+                    reason=f"{source} lowered its advice to {item.advisory_label}.",
+                    action="Restrictions eased: check the updated advisory before you travel.",
+                    confidence=0.8,
+                ),
+                model=self.name, prompt_version="heuristic-v1",
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
 
         assessment = RiskAssessment(
             affected=True,  # the baseline never dismisses: perfect recall, weak precision

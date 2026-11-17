@@ -14,11 +14,15 @@ from sqlalchemy.orm import Session
 
 from travel_risk.api.auth import hash_key
 from travel_risk.assess.queries import QUEUE_STATUSES, list_alerts, list_assessments
-from travel_risk.assess.review import ReviewError, apply_review
+from travel_risk.assess.review import (
+    SEVERITY_RANK,
+    ReviewError,
+    apply_trip_review,
+    merged_message,
+)
 from travel_risk.db import get_session
-from travel_risk.models import Assessment, Organisation
+from travel_risk.models import Advisory, Assessment, Organisation, Trip
 from travel_risk.notify.notifier import DefaultNotifier
-from travel_risk.schemas import ReviewRequest
 
 router = APIRouter(prefix="/ui", include_in_schema=False)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -94,39 +98,62 @@ def queue(request: Request, session: SessionDep, tab: str = "pending") -> Respon
     alerts = list_alerts(session, org.id) if tab == "sent" else []
     tab_counts["sent"] = len(alerts) if tab == "sent" else len(list_alerts(session, org.id))
     items = [] if tab == "sent" else list_assessments(session, org.id, QUEUE_STATUSES[tab])
+    groups = _group_by_trip(session, org, items)
     return templates.TemplateResponse(
         request,
         "queue.html",
         {
             "org": org, "tab": tab, "tabs": TABS, "tab_counts": tab_counts,
-            "items": items, "alerts": alerts,
+            "groups": groups, "alerts": alerts,
             "reviewer": request.cookies.get(NAME_COOKIE, ""),
             "flash": request.query_params.get("flash"),
         },
     )
 
 
-@router.post("/assessments/{assessment_id}/review")
+def _group_by_trip(session: Session, org: Organisation, items: list[dict]) -> list[dict]:
+    """One card per trip, sources side by side (MATCHING_RULES.md §7)."""
+    groups: dict[int, dict] = {}
+    for i in items:
+        g = groups.setdefault(i["trip"]["id"], {
+            "trip": i["trip"], "traveller": i["traveller"], "items": [],
+            "severity": i["severity"], "status": i["status"],
+        })
+        g["items"].append(i)
+    out = []
+    for g in groups.values():
+        g["items"].sort(key=lambda i: SEVERITY_RANK.get(i["severity"], 3))
+        g["severity"] = g["items"][0]["severity"]
+        g["ids"] = ",".join(str(i["id"]) for i in g["items"])
+        g["pending"] = all(i["status"] == "pending" for i in g["items"])
+        if g["pending"]:
+            trip = session.get(Trip, g["trip"]["id"])
+            pairs = [(session.get(Assessment, i["id"]), session.get(Advisory, i["advisory"]["id"]))
+                     for i in g["items"]]
+            g["message"] = merged_message(org, trip, pairs)
+        out.append(g)
+    out.sort(key=lambda g: (SEVERITY_RANK.get(g["severity"], 3), g["trip"]["start_date"]))
+    return out
+
+
+@router.post("/trips/review")
 def review(
     request: Request,
     session: SessionDep,
-    assessment_id: int,
-    decision: Annotated[str, Form()],
+    ids: Annotated[str, Form()],
+    decision: Annotated[str, Form(pattern="^(approve|reject)$")],
     message: Annotated[str, Form()] = "",
 ) -> Response:
     org = _org_from_cookie(request, session)
     if org is None:
         return _to_login()
     reviewer = request.cookies.get(NAME_COOKIE) or "unknown"
-    a = session.get(Assessment, assessment_id)
-    edited = decision == "approve" and a is not None and message.strip() != a.drafted_message
-    req = ReviewRequest(
-        decision="edit" if edited else decision,
-        reviewer=reviewer,
-        edited_message=message.strip() if edited else None,
-    )
     try:
-        _, n = apply_review(session, org, assessment_id, req, DefaultNotifier())
+        assessment_ids = [int(x) for x in ids.split(",") if x.strip()]
+        _, n = apply_trip_review(session, org, assessment_ids, decision, reviewer,
+                                 message, DefaultNotifier())
+    except ValueError:
+        return RedirectResponse(f"/ui?flash={quote('Invalid request')}", status_code=303)
     except ReviewError as exc:
         return RedirectResponse(f"/ui?flash={quote(exc.detail)}", status_code=303)
     if n is None:

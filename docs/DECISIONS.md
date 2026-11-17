@@ -2,6 +2,45 @@
 
 Short records of choices that change the original brief (v2, 15 Nov 2026). Newest first.
 
+## 2026-11-17: Weeks 4–6
+
+**Bugs found while writing the eval set** (before any model was run against it):
+- *The model was never told a level had dropped.* The prompt asked for "Restrictions eased:"
+  on a level drop, but the input had no previous level. `AssessmentInput` now carries
+  `change_kind` and `previous_level` (prompt v2).
+- *The West Bank was judged against Gaza's text.* Both map to `PS`; ingestion kept only the
+  stricter item. Same-country items are now merged: strictest level, both texts with headings,
+  `regional = true` when the levels differ.
+- *"Judge from the stricter source" double-counted.* Each trip already gets one assessment per
+  source, so the stricter one alerts anyway. Each assessment now judges its own advisory; the
+  other source's level is context and a routing signal (`sources_disagree`) only.
+
+**Deployment: ECS Fargate, not App Runner.** App Runner closed to new customers on
+30 April 2026. One CloudFormation stack: CloudFront (HTTPS without a domain) → ALB → one
+Fargate task → RDS PostgreSQL 17.11; EventBridge API destinations call the sync, digest and
+purge endpoints with the operator key. Local and CI Postgres moved from 17.12 to 17.11 so all
+three environments match (RDS doesn't offer 17.12 yet).
+
+**Sync runs in the background when scheduled.** EventBridge gives up after 5 seconds; a sync
+takes 30+. `?wait=false` returns at once, and a Postgres advisory lock stops overlapping syncs.
+
+**Digest goes to the travel manager, not travellers.** Digest items skip per-item approval, so
+the only safe recipient is the manager, who forwards what matters.
+
+**Email via SES v2**; Slack and a `log` channel otherwise. Delivery errors record the exception
+class only, so addresses never land in the database or logs.
+
+**Langfuse not added.** Every assessment already stores model, prompt version, latency and the
+API request id, and eval reports keep every outcome. Langfuse would add a hosted dependency
+without changing what can be explained; it's an easy later addition if a customer wants it.
+
+**MCP server is read-only** (MCP Python SDK 2.x `MCPServer`, stdio). Four tools; no approve
+or send, so "sending is not a tool" (brief §6) still holds when Claude is the client.
+
+**Local model context window set to 16k tokens.** Ollama's default silently truncates long
+FCDO pages; the model class errors if a prompt fills the window instead of judging half an
+advisory.
+
 ## 2026-11-17: Week 3 choices
 
 - **Hosted model: Claude Opus 5.5** (`claude-opus-5-5`) with JSON-schema structured output and

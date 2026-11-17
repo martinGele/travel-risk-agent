@@ -102,9 +102,10 @@ Otherwise:
 - Gaza and the West Bank: US publishes them separately (mapped to `PS`); UK publishes `palestine`. A
   trip to Jerusalem (`IL`) does not match `PS`. Flag it in evals.
 - US "Saba and Sint Eustatius" (`xqx`) and "Bonaire" (`bes`) both map to `BQ`; likewise Gaza and the
-  West Bank both map to `PS`. Ingestion keeps the **strictest** item per country (Gaza's Level 4 wins),
-  so a West Bank trip is assessed against Gaza's text. The LLM must read the regional nuance; add an
-  eval case for it.
+  West Bank both map to `PS`. Ingestion **merges** them: the strictest level (4), both texts under
+  their own headings, and `regional = true` because the levels differ. The model then judges a
+  Ramallah trip from the West Bank section. (Found while writing the eval set: keeping only the
+  strictest item had hidden the West Bank text entirely.)
 - A city spelled two ways ("Kyiv"/"Kiev") must normalise to one group key.
 - A trip ending today is a candidate; a trip that ended yesterday is not.
 - The US and UK sources disagree by ≥ 2 levels → always reviewed.

@@ -3,7 +3,10 @@
 Used by three things that must agree: the LLM prompt, the human labeller writing eval scenarios, and
 the review page. Change it here first; then bump `PROMPT_VERSION` and re-label anything affected.
 
-Severity describes **this traveller's trip**, not the country in general.
+Severity describes **this traveller's trip**, not the country in general, and is judged from
+**this advisory alone**. Each trip gets one assessment per source, so the stricter source always
+produces its own alert; the other source's level is context (mention a disagreement in `reason`)
+and a routing signal (`sources_disagree`), never a reason to change `affected` or `severity`.
 
 ## `affected`
 
@@ -25,7 +28,7 @@ below 0.7. Missing an affected traveller is the worst error.
 | **low** | Awareness only; plans stand | US Level 2; regional advice that does not cover the trip's city but is nearby; new info on protests, scams, health | Read the advisory, avoid demonstrations, keep documents ready |
 
 Tie-breakers:
-- If the two sources disagree, judge from the **stricter** one and say so in `reason`.
+- If the two sources disagree, still judge from this advisory, and say so in `reason`.
 - `affected = false` always pairs with `severity = low`.
 - A level going **down** is `low` severity, `affected = true`, action "Restrictions eased: …".
 

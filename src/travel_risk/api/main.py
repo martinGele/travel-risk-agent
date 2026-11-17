@@ -61,14 +61,50 @@ def ready(session: SessionDep) -> dict[str, str]:
     return {"status": "ready"}
 
 
-@app.post(
-    "/v1/advisories/sync",
-    dependencies=[Depends(require_operator)],
-    response_model=list[SyncResult],
-)
-def sync_advisories(session: SessionDep) -> list[SyncResult]:
-    """Poll both feeds now and assess affected trips. EventBridge calls this every 30 minutes."""
+def _sync_job() -> None:
+    with get_sessionmaker()() as session:
+        sync_all(session, get_model())
+
+
+@app.post("/v1/advisories/sync", dependencies=[Depends(require_operator)])
+def sync_advisories(
+    session: SessionDep, background: BackgroundTasks, wait: bool = True
+) -> list[SyncResult] | dict:
+    """Poll both feeds and assess affected trips.
+
+    The scheduler calls this with wait=false: EventBridge gives up after 5 seconds, so the sync
+    runs in the background and the call returns at once.
+    """
+    if not wait:
+        background.add_task(_sync_job)
+        return {"status": "started"}
     return sync_all(session, get_model())
+
+
+@app.post("/v1/digests/send", dependencies=[Depends(require_operator)])
+def send_digests_now(
+    session: SessionDep, notifier: Annotated[Notifier, Depends(get_notifier)]
+) -> dict:
+    """Send each organisation's daily digest. EventBridge calls this once a day."""
+    from travel_risk.notify.digest import send_digests
+
+    sent = send_digests(session, notifier, date.today())
+    return {"organisations": len(sent), "items": sum(sent.values())}
+
+
+@app.post("/v1/maintenance/purge", dependencies=[Depends(require_operator)])
+def purge_old_trips(session: SessionDep) -> dict:
+    """Delete trips that ended more than the retention period ago (GDPR, brief §9)."""
+    from datetime import timedelta
+
+    from sqlalchemy import delete
+
+    from travel_risk.models import Trip
+
+    cutoff = date.today() - timedelta(days=get_settings().trip_retention_days)
+    deleted = session.execute(delete(Trip).where(Trip.end_date < cutoff)).rowcount
+    session.commit()
+    return {"deleted_trips": deleted, "cutoff": cutoff.isoformat()}
 
 
 @app.get("/v1/advisories/current")

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17.12
+    image: postgres:17.11
     environment:
       POSTGRES_USER: travelrisk
       POSTGRES_PASSWORD: travelrisk

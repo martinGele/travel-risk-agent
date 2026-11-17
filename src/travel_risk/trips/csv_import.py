@@ -63,6 +63,15 @@ def _canonical(header: str) -> str:
     return HEADER_ALIASES.get(key, key.replace(" ", "_"))
 
 
+def tidy_city(raw: str | None) -> str | None:
+    """Collapse spaces; fix all-lower or ALL-CAPS input ("beirut" -> "Beirut"). Mixed case is
+    left alone so names like "Ho Chi Minh City" or "McAllen" survive."""
+    if not raw or not raw.strip():
+        return None
+    city = re.sub(r"\s+", " ", raw.strip())
+    return city.title() if city.islower() or city.isupper() else city
+
+
 def parse_date(raw: str, day_first: bool) -> tuple[date, bool]:
     """Return (date, was_ambiguous). Raises ValueError if unparseable."""
     value = raw.strip()
@@ -153,7 +162,7 @@ def _clean(row: dict[str, str], line: int, today: date, day_first: bool) -> tupl
             traveller_name=row["traveller_name"],
             traveller_email=email,
             country_iso=country,
-            city=row.get("city") or None,
+            city=tidy_city(row.get("city")),
             start_date=start,
             end_date=end,
             slack_id=row.get("slack_id") or None,

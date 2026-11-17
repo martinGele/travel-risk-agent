@@ -1,0 +1,44 @@
+name: eval
+
+# Blocks a merge if recall on the labelled scenarios drops below 95%.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "src/travel_risk/llm/**"
+      - "src/travel_risk/matching/**"
+      - "src/travel_risk/countries.py"
+      - "src/travel_risk/ingestion/**"
+      - "evals/**"
+      - "docs/SEVERITY_RUBRIC.md"
+
+jobs:
+  baseline:
+    # Offline and free: catches import and rules regressions (trips lost before the model).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: uv run python -m evals.run --model heuristic --min-recall 0.95 --no-write
+
+  claude:
+    # Runs only on pull requests and only when the repository has an ANTHROPIC_API_KEY secret.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Claude eval (gate)
+        if: env.ANTHROPIC_API_KEY != ''
+        run: uv run python -m evals.run --model claude --min-recall 0.95 --no-write | tee eval.md
+      - name: No API key configured
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::warning::ANTHROPIC_API_KEY secret not set; Claude eval skipped."
+      - name: Add report to the job summary
+        if: always() && env.ANTHROPIC_API_KEY != ''
+        run: cat eval.md >> "$GITHUB_STEP_SUMMARY"
