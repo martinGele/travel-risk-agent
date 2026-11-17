@@ -25,7 +25,23 @@ class RiskAssessment(BaseModel):
 
 class TripImportResult(BaseModel):
     accepted: int
+    duplicates: int
     rejected: list[dict]
+    warnings: list[str]
+    # Assessment runs in the background after the response; poll the queue for results.
+    trips_queued_for_assessment: int
+
+
+class ReviewRequest(BaseModel):
+    decision: Literal["approve", "edit", "reject"]
+    reviewer: str = Field(min_length=1, max_length=256)
+    edited_message: str | None = None
+
+    @model_validator(mode="after")
+    def _edit_needs_message(self) -> ReviewRequest:
+        if self.decision == "edit" and not (self.edited_message or "").strip():
+            raise ValueError("decision 'edit' requires edited_message")
+        return self
 
 
 class SyncResult(BaseModel):
@@ -33,4 +49,5 @@ class SyncResult(BaseModel):
     items_seen: int
     versions_created: int
     material_changes: int
+    assessments_created: int = 0
     errors: list[str] = []

@@ -41,13 +41,14 @@ grouping form (`MATCHING_RULES.md` §5). Trips are deleted `trip_retention_days`
 | `group_key` | Trips sharing it got one LLM call. |
 | `drafted_message` | What the agent wrote, kept even if the reviewer edits it, for evals and audit. |
 | `route`, `route_reasons` | Which deterministic rules sent it to review. |
-| `status` | `pending → approved / edited / rejected`, or `superseded`, `digested`, `no_action`. The API filters on this. |
+| `status` | `pending → approved / edited / rejected`; `digest → digested`; `no_action`; `superseded`. The API filters on this. |
 | `superseded_by_id` | Points at the assessment that replaced a pending one after a newer advisory version. |
 | `model`, `prompt_version`, `latency_ms`, `trace_id` | Explains any wrong alert; links to the Langfuse trace. |
 
 ## reviews / notifications
 
 Append-only. `notifications.review_id` is null for digest items (sent without per-item approval).
+`notifications.status`: `queued`, `sent`, `failed`, or `skipped_duplicate` (§7 de-duplication).
 `notifications.organisation_id` is denormalised for the same reason as on trips.
 
 ## sync_runs

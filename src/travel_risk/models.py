@@ -168,7 +168,8 @@ class Notification(Base):
     assessment_id: Mapped[int] = mapped_column(ForeignKey("assessments.id", ondelete="CASCADE"))
     review_id: Mapped[int | None] = mapped_column(ForeignKey("reviews.id"))  # null for digest
     channel: Mapped[str] = mapped_column(String(16))
-    status: Mapped[str] = mapped_column(String(16))  # queued | sent | failed
+    # queued | sent | failed | skipped_duplicate
+    status: Mapped[str] = mapped_column(String(24))
     error: Mapped[str | None] = mapped_column(Text)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _now()

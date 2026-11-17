@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import httpx
 from sqlalchemy import select, update
@@ -14,6 +14,7 @@ from travel_risk.config import get_settings
 from travel_risk.ingestion import uk_fcdo, us_state
 from travel_risk.ingestion.materiality import ChangeKind, classify
 from travel_risk.ingestion.snapshot import AdvisorySnapshot, Source
+from travel_risk.llm.base import RiskModel
 from travel_risk.models import Advisory, SyncRun
 from travel_risk.schemas import SyncResult
 
@@ -99,7 +100,13 @@ def _uk_snapshots(session: Session, client: httpx.Client) -> Iterable[AdvisorySn
             log.warning("UK %s: fetch failed: %s", entry.slug, exc)
 
 
-def sync_source(session: Session, source: Source, client: httpx.Client) -> SyncResult:
+def sync_source(
+    session: Session,
+    source: Source,
+    client: httpx.Client,
+    model: RiskModel | None = None,
+    today: date | None = None,
+) -> SyncResult:
     run = SyncRun(source=source)
     session.add(run)
     session.flush()
@@ -112,18 +119,34 @@ def sync_source(session: Session, source: Source, client: httpx.Client) -> SyncR
             snaps = _uk_snapshots(session, client)
         seen, created, triggering = store_snapshots(session, source, snaps)
         material = len(triggering)
-        # Week 3: enqueue assessments for `triggering` (MATCHING_RULES.md §4, trigger 1).
     except (httpx.HTTPError, ValueError) as exc:
         log.exception("sync %s failed", source)
         errors.append(str(exc))
         run.error = str(exc)
     run.finished_at = datetime.now(UTC)
     run.items_seen, run.versions_created, run.material_changes = seen, created, material
-    session.commit()
+    session.commit()  # advisories are saved even if assessment below fails
+
+    assessments = 0
+    if not errors and triggering and model is not None:
+        assessments = run_trigger_1(session, triggering, model, today or date.today())
     return SyncResult(
         source=source, items_seen=seen, versions_created=created,
-        material_changes=material, errors=errors,
+        material_changes=material, assessments_created=assessments, errors=errors,
     )
+
+
+def run_trigger_1(
+    session: Session, advisories: list[Advisory], model: RiskModel, today: date
+) -> int:
+    """MATCHING_RULES.md §4 trigger 1: assess candidate trips for each material version."""
+    from travel_risk.assess.pipeline import assess_advisory_change
+
+    total = 0
+    for adv in advisories:
+        total += len(assess_advisory_change(session, adv, model, today))
+        session.commit()
+    return total
 
 
 def make_client() -> httpx.Client:
@@ -135,9 +158,9 @@ def make_client() -> httpx.Client:
     )
 
 
-def sync_all(session: Session) -> list[SyncResult]:
+def sync_all(session: Session, model: RiskModel | None = None) -> list[SyncResult]:
     with make_client() as client:
-        return [sync_source(session, src, client) for src in Source]
+        return [sync_source(session, src, client, model) for src in Source]
 
 
 __all__ = ["ChangeKind", "store_snapshots", "sync_all", "sync_source", "current_version"]

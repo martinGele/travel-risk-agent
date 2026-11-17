@@ -1,4 +1,4 @@
-"""Model layer interface (week 3). Hosted API and local Ollama both implement `RiskModel`."""
+"""Model layer interface. Claude, the heuristic baseline and (week 5) Ollama all implement it."""
 
 from __future__ import annotations
 
@@ -7,8 +7,6 @@ from datetime import date
 from typing import Protocol
 
 from travel_risk.schemas import RiskAssessment
-
-PROMPT_VERSION = "v0"
 
 
 @dataclass(frozen=True)
@@ -35,9 +33,14 @@ class ModelResult:
     latency_ms: int
     input_tokens: int | None = None
     output_tokens: int | None = None
+    request_id: str | None = None
 
 
 class RiskModel(Protocol):
     name: str
 
     def assess(self, item: AssessmentInput) -> ModelResult: ...
+
+
+class ModelError(RuntimeError):
+    """Any failure to get a valid assessment. The pipeline turns it into a fail-safe review item."""

@@ -2,6 +2,29 @@
 
 Short records of choices that change the original brief (v2, 15 Nov 2026). Newest first.
 
+## 2026-11-17: Week 3 choices
+
+- **Hosted model: Claude Opus 5.5** (`claude-opus-5-5`) with JSON-schema structured output and
+  effort `medium`. Server-side refusal fallback (`fallbacks: "default"`) is on, so a safety
+  decline is retried on a fallback model instead of returning nothing; `assessments.model`
+  records which model actually answered.
+- **Heuristic baseline** (`TRA_MODEL_PROVIDER=heuristic`, the default): rules only, never says
+  "not affected". It makes tests and demos work offline and is the baseline row in the eval
+  table. It is deliberately blunt (almost everything is high severity): the LLM's job is to beat
+  its precision without losing its recall.
+- **Fail-safe:** any model error (network, refusal, truncation, invalid JSON, rubric violation)
+  becomes a `pending` review item with `model_error` and confidence 0. Nothing is dropped.
+- **Advisory text is fenced** in `<advisory>` tags and the system prompt says it is data.
+- **Review endpoint is org-scoped:** `POST /v1/orgs/{org_id}/assessments/{id}/review` instead
+  of the brief's `/v1/assessments/{id}/review`, so every route resolves the org from the key.
+- **CSV import assesses in the background** (FastAPI background task); the response returns
+  counts at once. Ambiguous dates like 03/04/2026 are read day-first (`TRA_CSV_DAY_FIRST`) and
+  reported as warnings with line numbers.
+- **Slack moved from week 5 to week 3** because the demo depends on it. Email organisations use
+  a `log` channel until SES lands in week 5.
+- **Demo mode:** `travel-risk simulate-advisory` writes a clearly labelled `[SIMULATED]` version;
+  the next real sync replaces it (as a level change, so travellers would get an "eased" update).
+
 ## 2026-11-17: Feed facts verified against live data
 
 Live fetches on 17 Nov 2026 (snapshots in `tests/fixtures/`) corrected the brief:

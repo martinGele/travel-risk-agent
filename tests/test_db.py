@@ -4,46 +4,18 @@ from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select, text
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from tests.conftest import load_uk
 from travel_risk.api.auth import hash_key
 from travel_risk.api.main import app
-from travel_risk.config import get_settings
 from travel_risk.db import get_session
 from travel_risk.ingestion import uk_fcdo, us_state
 from travel_risk.ingestion.service import store_snapshots
 from travel_risk.ingestion.snapshot import Source
-from travel_risk.models import Advisory, Base, Organisation
+from travel_risk.models import Advisory, Organisation
 
 pytestmark = pytest.mark.db
-
-
-@pytest.fixture(scope="module")
-def engine():
-    url = get_settings().database_url.rsplit("/", 1)[0] + "/travelrisk_test"
-    admin = create_engine(get_settings().database_url, isolation_level="AUTOCOMMIT")
-    try:
-        with admin.connect() as c:
-            c.execute(text("DROP DATABASE IF EXISTS travelrisk_test"))
-            c.execute(text("CREATE DATABASE travelrisk_test"))
-    except OperationalError:
-        pytest.skip("PostgreSQL not reachable: docker compose up -d db")
-    eng = create_engine(url)
-    Base.metadata.create_all(eng)
-    yield eng
-    eng.dispose()
-
-
-@pytest.fixture
-def session(engine):
-    with engine.connect() as conn:
-        tx = conn.begin()
-        with Session(bind=conn, join_transaction_mode="create_savepoint") as s:
-            yield s
-        tx.rollback()
 
 
 def test_us_feed_stores_one_current_version_per_country(session, us_feed_xml):
@@ -84,8 +56,7 @@ def test_org_routes_require_matching_key(session):
         assert client.get(url).status_code == 401
         assert client.get(url, headers={"X-API-Key": "key-b"}).status_code == 404
         assert client.get(url, headers={"X-API-Key": "nope"}).status_code == 404
-        # Correct key gets through auth (endpoint itself is still a week-3 stub).
-        assert client.get(url, headers={"X-API-Key": "key-a"}).status_code == 501
+        assert client.get(url, headers={"X-API-Key": "key-a"}).json() == []
         assert client.post("/v1/advisories/sync").status_code == 401
     finally:
         app.dependency_overrides.clear()

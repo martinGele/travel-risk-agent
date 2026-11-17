@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Travel Risk Agent{% endblock %}</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #16191d; --muted: #5f6b7a; --line: #e2e6eb;
+    --accent: #2457d6; --accent-ink: #ffffff;
+    --high: #b42318; --high-bg: #fef3f2; --med: #b54708; --med-bg: #fffaeb;
+    --low: #1d6b45; --low-bg: #ecfdf3; --chip: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --panel: #171b21; --text: #e7eaee; --muted: #98a2b0; --line: #2a3039;
+      --accent: #6f95ff; --accent-ink: #0b1020;
+      --high: #ff8a80; --high-bg: #3a1714; --med: #ffc169; --med-bg: #36260e;
+      --low: #7dd8a6; --low-bg: #10291d; --chip: #222833;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  header .wrap { display: flex; align-items: center; justify-content: space-between;
+                 gap: 12px; min-height: 56px; }
+  h1 { font-size: 17px; margin: 0; }
+  .muted { color: var(--muted); }
+  button, .btn { font: inherit; border: 1px solid var(--line); background: var(--panel);
+                 color: var(--text); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button.danger { color: var(--high); }
+  input, textarea { font: inherit; color: var(--text); background: var(--bg);
+                    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; }
+  textarea { min-height: 170px; resize: vertical; font-size: 14px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+{% block body %}{% endblock %}
+</body>
+</html>

@@ -11,8 +11,8 @@ approves anything high-risk. The LLM can escalate a case but never suppress one.
 
 | Week | Scope | State |
 |---|---|---|
-| 2 | Skeleton, schema, ingestion of both feeds, materiality, matching rules | **in progress** |
-| 3 | CSV import, LLM assessment, review queue API + page | stubs (501) |
+| 2 | Skeleton, schema, ingestion of both feeds, materiality, matching rules | done |
+| 3 | CSV import, LLM assessment, review queue API + page, Slack sending | done |
 | 4 | 50-scenario evals + CI gate, AWS deploy, demo | — |
 | 5 | Self-hosted model comparison, Slack + email | — |
 | 6 | MCP server | — |
@@ -41,6 +41,24 @@ Create a customer organisation and its API key:
 ```bash
 uv run travel-risk create-org "Acme Ltd" travel@acme.example
 ```
+
+## Demo
+
+```bash
+uv run travel-risk sync                       # real advisories
+uv run travel-risk seed-demo                  # demo org + messy CSV; prints its API key
+uv run uvicorn travel_risk.api.main:app --reload
+open http://localhost:8000/ui                 # sign in with the key, review the queue
+uv run travel-risk simulate-advisory --source uk_fcdo --country FR --level 4 \
+    --text "FCDO advises against all travel to France due to nationwide unrest."
+```
+
+`seed-demo --slack-webhook https://hooks.slack.com/...` makes Approve post to Slack.
+
+**Model.** `TRA_MODEL_PROVIDER=heuristic` (default) runs the rules-only baseline offline.
+`TRA_MODEL_PROVIDER=claude` uses Claude (`claude-opus-5-5`, structured output, effort `medium`)
+and needs `ANTHROPIC_API_KEY`. Either way the model only sees advisory text, city, country and
+dates; names and emails are added to the message afterwards.
 
 ## Tests
 

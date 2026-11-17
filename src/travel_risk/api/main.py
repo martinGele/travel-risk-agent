@@ -1,25 +1,53 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import date
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, UploadFile
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from travel_risk.api.auth import require_operator, require_org
-from travel_risk.db import get_session
+from travel_risk.assess.pipeline import assess_new_trips, load_trips
+from travel_risk.assess.queries import QUEUE_STATUSES, list_alerts, list_assessments
+from travel_risk.assess.review import ReviewError, apply_review
+from travel_risk.config import get_settings
+from travel_risk.db import get_session, get_sessionmaker
 from travel_risk.ingestion.service import sync_all
+from travel_risk.llm.factory import get_model
 from travel_risk.models import Advisory, Organisation
-from travel_risk.schemas import SyncResult, TripImportResult
+from travel_risk.notify.notifier import DefaultNotifier, Notifier
+from travel_risk.schemas import ReviewRequest, SyncResult, TripImportResult
+from travel_risk.trips.csv_import import import_trips, parse_csv
+from travel_risk.web.routes import router as web_router
+
+MAX_CSV_BYTES = 5 * 1024 * 1024
 
 app = FastAPI(
     title="Travel Risk Agent",
-    version="0.1.0",
+    version="0.2.0",
     description="Matches official travel advisories against upcoming trips; humans approve alerts.",
 )
+app.include_router(web_router)
 
 SessionDep = Annotated[Session, Depends(get_session)]
 OrgDep = Annotated[Organisation, Depends(require_org)]
+
+
+def get_notifier() -> Notifier:
+    return DefaultNotifier()
+
+
+def _assess_trips_job(trip_ids: list[int]) -> None:
+    """Runs after the import response is sent, with its own session."""
+    with get_sessionmaker()() as session:
+        assess_new_trips(session, load_trips(session, trip_ids), get_model(), date.today())
+        session.commit()
+
+
+def get_trip_assessor() -> Callable[[list[int]], None]:
+    return _assess_trips_job
 
 
 @app.get("/health")
@@ -39,8 +67,8 @@ def ready(session: SessionDep) -> dict[str, str]:
     response_model=list[SyncResult],
 )
 def sync_advisories(session: SessionDep) -> list[SyncResult]:
-    """Poll both feeds now. In production EventBridge Scheduler calls this every 30 minutes."""
-    return sync_all(session)
+    """Poll both feeds now and assess affected trips. EventBridge calls this every 30 minutes."""
+    return sync_all(session, get_model())
 
 
 @app.get("/v1/advisories/current")
@@ -60,27 +88,65 @@ def current_advisories(session: SessionDep, country_iso: str | None = None) -> l
     ]
 
 
-# ---- Week 3 endpoints: signatures fixed now so auth and scoping are in place from day one ----
-
-def _not_yet() -> HTTPException:
-    return HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "planned for week 3")
-
-
 @app.post("/v1/orgs/{org_id}/trips/import", response_model=TripImportResult)
-def import_trips(org: OrgDep, file: UploadFile) -> TripImportResult:
-    raise _not_yet()
+async def import_trips_csv(
+    org: OrgDep,
+    session: SessionDep,
+    file: UploadFile,
+    background: BackgroundTasks,
+    assessor: Annotated[Callable[[list[int]], None], Depends(get_trip_assessor)],
+) -> TripImportResult:
+    data = await file.read(MAX_CSV_BYTES + 1)
+    if len(data) > MAX_CSV_BYTES:
+        raise HTTPException(413, "CSV larger than 5 MB")
+    parsed = parse_csv(data, date.today(), day_first=get_settings().csv_day_first)
+    outcome = import_trips(session, org.id, parsed)
+    session.commit()
+    trip_ids = [t.id for t in outcome.created]
+    if trip_ids:
+        background.add_task(assessor, trip_ids)
+    return TripImportResult(
+        accepted=len(outcome.created),
+        duplicates=outcome.duplicates,
+        rejected=parsed.rejected,
+        warnings=parsed.warnings,
+        trips_queued_for_assessment=len(trip_ids),
+    )
 
 
 @app.get("/v1/orgs/{org_id}/assessments")
-def list_assessments(org: OrgDep, status_: str = "pending") -> list[dict]:
-    raise _not_yet()
+def get_assessments(
+    org: OrgDep,
+    session: SessionDep,
+    status: Annotated[str, Query(pattern="^(" + "|".join(QUEUE_STATUSES) + ")$")] = "pending",
+) -> list[dict]:
+    """Review queue. status: pending | digest | dismissed | decided | superseded."""
+    return list_assessments(session, org.id, QUEUE_STATUSES[status])
 
 
 @app.post("/v1/orgs/{org_id}/assessments/{assessment_id}/review")
-def review_assessment(org: OrgDep, assessment_id: int) -> dict:
-    raise _not_yet()
+def review_assessment(
+    org: OrgDep,
+    session: SessionDep,
+    assessment_id: int,
+    body: ReviewRequest,
+    notifier: Annotated[Notifier, Depends(get_notifier)],
+) -> dict:
+    """Approve, edit or reject. Approve and edit send the message immediately."""
+    try:
+        a, n = apply_review(session, org, assessment_id, body, notifier)
+    except ReviewError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+    return {
+        "assessment_id": a.id,
+        "status": a.status,
+        "notification": None if n is None else {
+            "id": n.id, "channel": n.channel, "status": n.status, "error": n.error,
+        },
+    }
 
 
 @app.get("/v1/orgs/{org_id}/alerts")
-def list_alerts(org: OrgDep) -> list[dict]:
-    raise _not_yet()
+def get_alerts(org: OrgDep, session: SessionDep) -> list[dict]:
+    """Sent (and failed) notifications, newest first."""
+    return list_alerts(session, org.id)

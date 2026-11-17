@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Travel Risk Agent{% endblock %}
+{% block body %}
+<style>
+  .card { max-width: 400px; margin: 12vh auto 0; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 12px; padding: 28px; }
+  label { display: block; margin: 14px 0 6px; font-weight: 600; font-size: 14px; }
+  .err { color: var(--high); margin-top: 12px; }
+</style>
+<div class="wrap">
+  <form class="card" method="post" action="/ui/login">
+    <h1>Travel Risk Agent</h1>
+    <p class="muted">Review queue for travel managers.</p>
+    <label for="reviewer">Your name</label>
+    <input id="reviewer" name="reviewer" required autocomplete="name">
+    <label for="api_key">Organisation API key</label>
+    <input id="api_key" name="api_key" type="password" required autocomplete="off">
+    {% if error %}<p class="err">That key or name wasn't accepted.</p>{% endif %}
+    <p><button class="primary" type="submit">Sign in</button></p>
+  </form>
+</div>
+{% endblock %}
