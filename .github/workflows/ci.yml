@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       db:
-        image: postgres:17
+        image: postgres:17.12
         env:
           POSTGRES_USER: travelrisk
           POSTGRES_PASSWORD: travelrisk
