@@ -43,7 +43,25 @@ flowchart LR
 Same 50 labelled scenarios for each model, run end to end (import → rules → model → routing).
 Details and every mistake: [`evals/results/`](evals/results/). Method: [`evals/README.md`](evals/README.md).
 
-<!-- RESULTS_TABLE -->
+| Model | Recall | System recall | Precision | Severity acc. | Cost / 100 | Mean latency |
+|---|---|---|---|---|---|---|
+| Rules-only baseline | 1.000 | 1.000 | 0.773 | 0.618 | $0 | 0 s |
+| Qwen 2.5 7B (local, Ollama, M-series GPU) | 0.971 | 1.000 | 0.767 | 0.667 | $0 (own hardware) | 35 s (p95 64 s) |
+| Claude Opus 5.5 | pending | | | | | |
+| *Target* | *≥ 0.95* | *1.0* | *≥ 0.85* | *≥ 0.80* | | |
+
+**What the Qwen run shows** ([report](evals/results/ollama-qwen2.5-7b.md)):
+- **It never ruled anyone out.** All 10 "city outside the restricted region" cases came back
+  affected, including the explicit exceptions ("except Lamu Island"), so precision is no better
+  than the rules alone. Cutting false alarms is the main thing a model is for here.
+- **It fell for the prompt injection.** Text inside the advisory said to mark the trip as not
+  affected, and Qwen did. The routing rule `llm_dismissed_high` still sent it to a person, which
+  is why system recall stays at 1.0: the safety net worked as designed.
+- **Severity drifts to "medium"**: L3 regional cases rated medium instead of high, and L2 cases
+  medium instead of low.
+
+So a 7B local model is not good enough to run unsupervised on this task; it's usable only with
+every case going to review. The Claude row fills in when the eval is run with an API key.
 
 ## What's in the box
 
